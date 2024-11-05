@@ -1,6 +1,8 @@
 # app/routes/route.py
 from flask import Blueprint, request, jsonify
 
+from app.doctrine.sql import sql_connector
+
 main = Blueprint('main', __name__)
 
 
@@ -11,10 +13,13 @@ def routes(path):
 
 
 def set_route(path):
-    return jsonify({
+    sql_connector()
+
+    data = jsonify({
         'message': 'Hello, this is an anonymous route!',
         'path': path,
         'dir': 'root/main',
         'method': request.method
     })
 
+    return data
