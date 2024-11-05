@@ -1,7 +1,7 @@
 # app/routes/route.py
 from flask import Blueprint, request, jsonify
 
-from app.doctrine.sql import sql_connector
+from . import Database
 
 main = Blueprint('main', __name__)
 
@@ -13,7 +13,9 @@ def routes(path):
 
 
 def set_route(path):
-    sql_connector()
+    sql_connector = Database("select * from product;")
+
+    sql_connector.query_database("namename")
 
     data = jsonify({
         'message': 'Hello, this is an anonymous route!',
