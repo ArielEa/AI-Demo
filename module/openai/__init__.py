@@ -15,7 +15,7 @@ class Open_init:
 
         completions = openai.chat.completions.create(
             # model="gpt-4o-mini",
-            model="text-davinci-003",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are helpful assistant!"},
                 {

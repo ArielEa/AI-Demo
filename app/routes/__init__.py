@@ -13,4 +13,5 @@ def sql_connector_explain():
 
     return
 
-sql_connector_explain()
+# sql_connector_explain()
+
