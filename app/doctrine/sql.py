@@ -11,16 +11,21 @@ class Database:
             database="project"
         )
 
-        self.cursor = self.connection.cursor()
+        self.cursor = self.connection.cursor(dictionary=True)
 
-    def query_database(self, name):
-
-        print(name)
+    def query_database(self):
         self.cursor.execute(self.query)
+
         results = self.cursor.fetchall()
-        for row in results:
-            print(row)
-            print(1234)
+
+        try:
+            for row in results:
+                print(row)
+
+        except Exception as e:
+            print(f"SQL error warning: can\'t search column {e}")
+            return
+
         return results
 
     def close(self):

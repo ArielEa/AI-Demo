@@ -3,9 +3,14 @@
 
 from app.doctrine.sql import Database
 
+from module.openai import Open_init
+
 
 def sql_connector_explain():
-    print("abdd")
+    open_init = Open_init()
 
+    open_init.setter_configuration()
+
+    return
 
 sql_connector_explain()
