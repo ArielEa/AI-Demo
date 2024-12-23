@@ -28,11 +28,11 @@ class Open_init:
         return completions.choices[0].message
 
 
-openai = Open_init()
-
-try:
-    message = openai.setter_configuration()
-
-    print(message)
-except Exception as e:
-    print(f"openai error: {e}")
+# openai = Open_init()
+#
+# try:
+#     message = openai.setter_configuration()
+#
+#     print(message)
+# except Exception as e:
+#     print(f"openai error: {e}")

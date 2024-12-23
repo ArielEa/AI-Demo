@@ -2,3 +2,5 @@
 /app/__pycache__
 /app/routes/__pycache__
 /app/doctrine/__pycache__
+/module/__pycache__
+/module/openai/__pycache__
