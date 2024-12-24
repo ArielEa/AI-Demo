@@ -7,7 +7,6 @@ class Open_init:
     def __init__(self):
         pass
 
-
     def setter_configuration(self):
         openai = OpenAI()
 
@@ -24,12 +23,13 @@ class Open_init:
                 }
             ]
         )
-
         return completions.choices[0].message
 
 
 # openai = Open_init()
 #
+# 今OpenAIは使わないで、あとで検証します。
+# openai = Open_init()
 # try:
 #     message = openai.setter_configuration()
 #
