@@ -1,6 +1,6 @@
 # ===========================================
 # SearchFiles.ps1
-# 機能：指定フォルダ後、複数回ファイル名検索が可能。
+# 機能：指定フォルダ後、複数回ファイル名検索が可能
 #       ログ記録付き、起動時に前回フォルダを使うか新規選択するか選択可能
 # ===========================================
 
@@ -8,6 +8,7 @@
 $logFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "SearchLog.txt"
 
 # 前回の検索フォルダ確認
+$searchPath = $null
 if (Test-Path ".\search_config.txt") {
     $oldPath = (Get-Content ".\search_config.txt" -Raw).Trim()
     Write-Host "前回保存された検索フォルダ：" -ForegroundColor Cyan
@@ -17,8 +18,6 @@ if (Test-Path ".\search_config.txt") {
 
     if ($choice -eq "1") {
         $searchPath = $oldPath
-    } else {
-        $searchPath = $null
     }
 }
 
