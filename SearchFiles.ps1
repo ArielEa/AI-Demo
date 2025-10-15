@@ -1,144 +1,101 @@
-# ===========================================
-# SearchFiles.ps1
-# 機能：単一ワードまたはCSVリストを基にファイル内容検索
-#       該当箇所（行番号・列位置）を特定しCSVに出力
-#       実行ごとにログを新規作成
-# ===========================================
+# 文件搜索器 PowerShell 脚本
+# 功能：支持单个关键字或 CSV 批量关键字搜索，输出匹配结果
+# 作者：ChatGPT 改进版
 
-Add-Type -AssemblyName System.Windows.Forms
-
-# === ログファイル作成 ===
-$timestamp = (Get-Date).ToString("yyyyMMdd_HHmmss")
-$logFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "SearchLog_$timestamp.txt"
-function Write-Log($msg) {
-    $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -Path $logFile -Value "[$time] $msg"
+function New-SearchLogName {
+    $timestamp = (Get-Date).ToString("yyyyMMddHHmmss")
+    return "searchLog_$timestamp.txt"
 }
 
-Write-Host ""
-Write-Host "===============================" -ForegroundColor White
-Write-Host "📁 ファイル内容検索ツール 起動" -ForegroundColor Cyan
-Write-Host "===============================" -ForegroundColor White
-Write-Host ""
+function Search-InFile {
+    param (
+        [string]$FilePath,
+        [string]$Keyword
+    )
 
-# === 検索モード選択 ===
-Write-Host "検索方法を選択してください：" -ForegroundColor Yellow
-Write-Host "1️⃣ 単一キーワード検索"
-Write-Host "2️⃣ CSVファイルのリストで検索"
-$mode = Read-Host "番号を入力 (1 または 2)"
-
-$searchWords = @()
-
-if ($mode -eq "1") {
-    $word = Read-Host "検索したい文字列を入力してください"
-    $searchWords += $word
-    Write-Log "単一ワード検索: $word"
-}
-elseif ($mode -eq "2") {
-    Write-Host ""
-    Write-Host "📄 CSVファイルを選択してください..." -ForegroundColor Cyan
-    $fileDialog = New-Object System.Windows.Forms.OpenFileDialog
-    $fileDialog.Filter = "CSV ファイル (*.csv)|*.csv|すべてのファイル (*.*)|*.*"
-
-    if ($fileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        $csvPath = $fileDialog.FileName
-        $searchWords = Import-Csv -Path $csvPath | ForEach-Object { $_.PSObject.Properties.Value } | Where-Object { $_ -ne "" }
-        Write-Host "✅ CSVから $($searchWords.Count) 件のワードを読み込みました。" -ForegroundColor Green
-        Write-Log "CSVワード数: $($searchWords.Count)"
-    }
-    else {
-        Write-Host "❌ ファイルが選択されませんでした。終了します。" -ForegroundColor Red
-        exit
-    }
-}
-else {
-    Write-Host "❌ 無効な入力。終了します。" -ForegroundColor Red
-    exit
-}
-
-# === フォルダ選択 ===
-Write-Host ""
-Write-Host "🔍 検索対象フォルダを選択してください..." -ForegroundColor Cyan
-$folderDialog = New-Object System.Windows.Forms.FolderBrowserDialog
-if ($folderDialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
-    Write-Host "❌ フォルダが選択されませんでした。終了します。" -ForegroundColor Red
-    exit
-}
-$searchPath = $folderDialog.SelectedPath
-Write-Host "➡ 対象フォルダ: $searchPath" -ForegroundColor Green
-Write-Log "検索フォルダ: $searchPath"
-
-# === 結果保存ファイル ===
-$resultCsv = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "SearchResult_$timestamp.csv"
-
-# === 検索処理 ===
-Write-Host ""
-Write-Host "🚀 検索を開始します..." -ForegroundColor Cyan
-Write-Log "検索開始"
-
-$results = @()
-
-foreach ($file in Get-ChildItem -Path $searchPath -Recurse -File -ErrorAction SilentlyContinue) {
-    try {
-        $lines = Get-Content -Path $file.FullName -Encoding UTF8
-    } catch {
-        Write-Host "⚠ 読み取れないファイル: $($file.FullName)" -ForegroundColor Yellow
-        Write-Log "読み取れない: $($file.FullName)"
-        continue
-    }
-
-    $fileMatched = $false
+    $results = @()
+    $lines = Get-Content -Path $FilePath -ErrorAction SilentlyContinue
 
     for ($i = 0; $i -lt $lines.Count; $i++) {
-        $line = [string]$lines[$i]
+        $line = $lines[$i]
+        $index = $line.IndexOf($Keyword)
+        if ($index -ge 0) {
+            $results += [PSCustomObject]@{
+                FileName = (Split-Path $FilePath -Leaf)
+                Status   = "FOUND"
+                Content  = $line
+                LineNum  = $i + 1
+                CharPos  = $index + 1
+            }
+        }
+    }
+    return $results
+}
 
-        foreach ($word in $searchWords) {
-            if ($line -like "*$word*") {
-                $fileMatched = $true
-                $index = 0
-                while (($pos = $line.IndexOf($word, $index)) -ne -1) {
-                    $index = $pos + $word.Length
+function Run-Search {
+    # 创建日志文件
+    $logFile = New-SearchLogName
+    $csvResults = @()
 
-                    $results += [PSCustomObject]@{
-                        ファイル名   = $file.Name
-                        ファイル状態 = "一致あり"
-                        検索ワード   = $word
-                        内容         = $line.Trim()
-                        行号         = $i + 1
-                        行内位置     = $pos + 1
-                    }
+    Write-Host "请选择搜索模式："
+    Write-Host "1. 单个关键字搜索"
+    Write-Host "2. CSV 批量搜索"
+    $mode = Read-Host "输入 1 或 2"
+
+    if ($mode -eq "1") {
+        $keyword = Read-Host "请输入要搜索的关键字"
+        $keywords = @($keyword)
+    }
+    elseif ($mode -eq "2") {
+        $csvPath = Read-Host "请输入 CSV 文件路径"
+        $columnName = Read-Host "请输入要读取的列名"
+        $data = Import-Csv -Path $csvPath
+        $keywords = $data | ForEach-Object { $_.$columnName } | Where-Object { $_ -ne "" }
+    }
+    else {
+        Write-Host "输入无效，请重新选择。"
+        return
+    }
+
+    $folder = Read-Host "请输入要搜索的文件夹路径"
+    if (!(Test-Path $folder)) {
+        Write-Host "❌ 文件夹不存在。"
+        return
+    }
+
+    $files = Get-ChildItem -Path $folder -Recurse -File -ErrorAction SilentlyContinue
+
+    foreach ($keyword in $keywords) {
+        Write-Host "`n🔍 正在搜索关键字：$keyword"
+        foreach ($file in $files) {
+            $found = Search-InFile -FilePath $file.FullName -Keyword $keyword
+            if ($found.Count -gt 0) {
+                $csvResults += $found
+                $found | ForEach-Object {
+                    Add-Content -Path $logFile -Value ("[$($_.FileName)] Line $($_.LineNum): $($_.Content)")
                 }
             }
         }
     }
 
-    if (-not $fileMatched) {
-        $results += [PSCustomObject]@{
-            ファイル名   = $file.Name
-            ファイル状態 = "一致なし"
-            検索ワード   = ""
-            内容         = ""
-            行号         = ""
-            行内位置     = ""
-        }
+    if ($csvResults.Count -gt 0) {
+        $csvName = "SearchResult_$(Get-Date -Format 'yyyyMMddHHmmss').csv"
+        $csvResults | Export-Csv -Path $csvName -NoTypeInformation -Encoding UTF8
+        Write-Host "`n✅ 搜索结束，结果已保存至 $csvName"
+    }
+    else {
+        Write-Host "`n⚠️ 未找到任何匹配结果。"
+    }
+
+    Write-Host "`n📘 日志文件：$logFile"
+}
+
+# 主循环，可持续搜索
+while ($true) {
+    Run-Search
+    $cont = Read-Host "`n是否继续搜索？(Y/N)"
+    if ($cont -ne "Y" -and $cont -ne "y") {
+        Write-Host "👋 程序结束，再见。"
+        break
     }
 }
-
-# === 結果出力 ===
-if ($results.Count -gt 0) {
-    Write-Host ""
-    Write-Host "✅ 検索結果: $($results.Count) 件見つかりました！" -ForegroundColor Green
-    $results | Export-Csv -Path $resultCsv -Encoding UTF8 -NoTypeInformation
-    Write-Host "💾 結果を保存しました: $resultCsv" -ForegroundColor Cyan
-    Write-Log "結果: $($results.Count) 件"
-} else {
-    Write-Host ""
-    Write-Host "❌ 一致する内容は見つかりませんでした。" -ForegroundColor Red
-    Write-Log "一致結果なし"
-}
-
-Write-Host ""
-Write-Host "===============================" -ForegroundColor White
-Write-Host "🎉 処理完了しました。お疲れさまでした！" -ForegroundColor Cyan
-Write-Host "ログ: $logFile" -ForegroundColor DarkGray
-Write-Host "===============================" -ForegroundColor White
