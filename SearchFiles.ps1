@@ -117,9 +117,8 @@ foreach ($file in Get-ChildItem -Path $searchPath -Recurse -File -ErrorAction Si
                     }
                 }
 
-                # コンソール表示（キーワード部分を黄色ハイライト）
-                $highlightedLine = $line -replace "($word)", "`e[33m$1`e[0m"
-                Write-Host "🔍 $($file.Name) 行 $($i + 1): $highlightedLine"
+                # 控制台输出整行
+                Write-Host "🔍 $($file.Name) 行 $($i + 1): $line"
             }
         }
     }
