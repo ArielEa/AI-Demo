@@ -1,110 +1,144 @@
 # ===========================================
-# ログファイル（毎回新規作成）
-# ===========================================
-$timestamp = Get-Date -Format "yyyyMMddHHmmss"
-$logFile = Join-Path $PSScriptRoot "SearchLog_$timestamp.txt"
-
-function Write-Log($text) {
-    $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -Path $logFile -Value "[$time] $text"
-}
-
-# ===========================================
 # SearchFiles.ps1
-# 機能：
-# 1. 単一ファイル名 or CSV列による複数検索
-# 2. フォルダ選択
-# 3. ファイル存在チェック + 内容検索（行番号、行内位置）
-# 4. CSV出力とログ記録
+# 機能：単一ワードまたはCSVリストを基にファイル内容検索
+#       該当箇所（行番号・列位置）を特定しCSVに出力
+#       実行ごとにログを新規作成
 # ===========================================
 
-# ログファイル
-$logFile = Join-Path $PSScriptRoot "SearchLog.txt"
-function Write-Log($text) {
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -Path $logFile -Value "[$timestamp] $text"
+Add-Type -AssemblyName System.Windows.Forms
+
+# === ログファイル作成 ===
+$timestamp = (Get-Date).ToString("yyyyMMdd_HHmmss")
+$logFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "SearchLog_$timestamp.txt"
+function Write-Log($msg) {
+    $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -Path $logFile -Value "[$time] $msg"
 }
 
-# 検索モード選択
-Write-Host "検索モードを選択してください: 1=単一ファイル, 2=CSVリスト" -ForegroundColor Cyan
-$mode = Read-Host
+Write-Host ""
+Write-Host "===============================" -ForegroundColor White
+Write-Host "📁 ファイル内容検索ツール 起動" -ForegroundColor Cyan
+Write-Host "===============================" -ForegroundColor White
+Write-Host ""
 
-# キーワード取得
-$searchList = @()
+# === 検索モード選択 ===
+Write-Host "検索方法を選択してください：" -ForegroundColor Yellow
+Write-Host "1️⃣ 単一キーワード検索"
+Write-Host "2️⃣ CSVファイルのリストで検索"
+$mode = Read-Host "番号を入力 (1 または 2)"
+
+$searchWords = @()
+
 if ($mode -eq "1") {
-    $searchList = @(Read-Host "検索するファイル名を入力")
-} elseif ($mode -eq "2") {
-    Add-Type -AssemblyName System.Windows.Forms
-    $dialog = New-Object System.Windows.Forms.OpenFileDialog
-    $dialog.Filter = "CSVファイル (*.csv)|*.csv"
-    if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { exit }
-    $csvPath = $dialog.FileName
-    $searchList = (Import-Csv -Path $csvPath -Header "Keyword") | ForEach-Object { $_.Keyword }
-} else {
-    Write-Host "無効な選択です。" -ForegroundColor Red
+    $word = Read-Host "検索したい文字列を入力してください"
+    $searchWords += $word
+    Write-Log "単一ワード検索: $word"
+}
+elseif ($mode -eq "2") {
+    Write-Host ""
+    Write-Host "📄 CSVファイルを選択してください..." -ForegroundColor Cyan
+    $fileDialog = New-Object System.Windows.Forms.OpenFileDialog
+    $fileDialog.Filter = "CSV ファイル (*.csv)|*.csv|すべてのファイル (*.*)|*.*"
+
+    if ($fileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        $csvPath = $fileDialog.FileName
+        $searchWords = Import-Csv -Path $csvPath | ForEach-Object { $_.PSObject.Properties.Value } | Where-Object { $_ -ne "" }
+        Write-Host "✅ CSVから $($searchWords.Count) 件のワードを読み込みました。" -ForegroundColor Green
+        Write-Log "CSVワード数: $($searchWords.Count)"
+    }
+    else {
+        Write-Host "❌ ファイルが選択されませんでした。終了します。" -ForegroundColor Red
+        exit
+    }
+}
+else {
+    Write-Host "❌ 無効な入力。終了します。" -ForegroundColor Red
     exit
 }
 
-# フォルダ選択
-Add-Type -AssemblyName System.Windows.Forms
+# === フォルダ選択 ===
+Write-Host ""
+Write-Host "🔍 検索対象フォルダを選択してください..." -ForegroundColor Cyan
 $folderDialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$folderDialog.Description = "検索対象のフォルダを選択してください"
-if ($folderDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-    $searchPath = $folderDialog.SelectedPath
-    Write-Host "検索フォルダ: $searchPath" -ForegroundColor Green
-} else { exit }
+if ($folderDialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+    Write-Host "❌ フォルダが選択されませんでした。終了します。" -ForegroundColor Red
+    exit
+}
+$searchPath = $folderDialog.SelectedPath
+Write-Host "➡ 対象フォルダ: $searchPath" -ForegroundColor Green
+Write-Log "検索フォルダ: $searchPath"
 
-# 結果格納用
-$output = @()
+# === 結果保存ファイル ===
+$resultCsv = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "SearchResult_$timestamp.csv"
 
-# メイン検索ループ
-foreach ($name in $searchList) {
-    Write-Host "============================" -ForegroundColor Cyan
-    Write-Host "検索中: $name" -ForegroundColor Yellow
+# === 検索処理 ===
+Write-Host ""
+Write-Host "🚀 検索を開始します..." -ForegroundColor Cyan
+Write-Log "検索開始"
 
-    # ファイル存在チェック
-    $foundInFolder = Get-ChildItem -Path $searchPath -Recurse -File | Where-Object { $_.Name -like "*$name*" }
+$results = @()
 
-    if ($foundInFolder) {
-        foreach ($file in $foundInFolder) {
-            Write-Host "✅ ファイル存在: $($file.Name)" -ForegroundColor Green
-            Write-Log "ファイル [$name] がフォルダ内に存在: $($file.FullName)"
-            $output += [PSCustomObject]@{
-                ファイル名 = $file.Name
-                ファイル状態 = "存在"
-                内容 = ""
-                行号 = ""
-                行内位置 = ""
-            }
-        }
-    } else {
-        # ファイル内容検索
-        $allFiles = Get-ChildItem -Path $searchPath -Recurse -File
-        foreach ($file in $allFiles) {
-            $lines = Get-Content -Path $file.FullName
-            for ($i=0; $i -lt $lines.Count; $i++) {
-                $line = $lines[$i]
+foreach ($file in Get-ChildItem -Path $searchPath -Recurse -File -ErrorAction SilentlyContinue) {
+    try {
+        $lines = Get-Content -Path $file.FullName -Encoding UTF8
+    } catch {
+        Write-Host "⚠ 読み取れないファイル: $($file.FullName)" -ForegroundColor Yellow
+        Write-Log "読み取れない: $($file.FullName)"
+        continue
+    }
+
+    $fileMatched = $false
+
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = [string]$lines[$i]
+
+        foreach ($word in $searchWords) {
+            if ($line -like "*$word*") {
+                $fileMatched = $true
                 $index = 0
-                while (($pos = $line.IndexOf($name, $index)) -ne -1) {
-                    Write-Host "🔍 内容検索ヒット: $($file.Name) 行 $($i+1) 位置 $($pos+1)" -ForegroundColor Magenta
-                    Write-Log "ファイル [$file.Name] 行 $($i+1) 位置 $($pos+1) -> $line"
+                while (($pos = $line.IndexOf($word, $index)) -ne -1) {
+                    $index = $pos + $word.Length
 
-                    $output += [PSCustomObject]@{
-                        ファイル名 = $file.Name
-                        ファイル状態 = "内容検索"
-                        内容 = $line
-                        行号 = $i+1
-                        行内位置 = $pos+1
+                    $results += [PSCustomObject]@{
+                        ファイル名   = $file.Name
+                        ファイル状態 = "一致あり"
+                        検索ワード   = $word
+                        内容         = $line.Trim()
+                        行号         = $i + 1
+                        行内位置     = $pos + 1
                     }
-                    $index = $pos + 1
                 }
             }
         }
     }
+
+    if (-not $fileMatched) {
+        $results += [PSCustomObject]@{
+            ファイル名   = $file.Name
+            ファイル状態 = "一致なし"
+            検索ワード   = ""
+            内容         = ""
+            行号         = ""
+            行内位置     = ""
+        }
+    }
 }
 
-# CSV出力
-$csvOut = Join-Path $PSScriptRoot "SearchResult.csv"
-$output | Export-Csv -Path $csvOut -NoTypeInformation -Encoding UTF8
-Write-Host "検索結果を出力しました: $csvOut" -ForegroundColor Green
-Write-Log "検索完了: CSV生成 -> $csvOut"
+# === 結果出力 ===
+if ($results.Count -gt 0) {
+    Write-Host ""
+    Write-Host "✅ 検索結果: $($results.Count) 件見つかりました！" -ForegroundColor Green
+    $results | Export-Csv -Path $resultCsv -Encoding UTF8 -NoTypeInformation
+    Write-Host "💾 結果を保存しました: $resultCsv" -ForegroundColor Cyan
+    Write-Log "結果: $($results.Count) 件"
+} else {
+    Write-Host ""
+    Write-Host "❌ 一致する内容は見つかりませんでした。" -ForegroundColor Red
+    Write-Log "一致結果なし"
+}
+
+Write-Host ""
+Write-Host "===============================" -ForegroundColor White
+Write-Host "🎉 処理完了しました。お疲れさまでした！" -ForegroundColor Cyan
+Write-Host "ログ: $logFile" -ForegroundColor DarkGray
+Write-Host "===============================" -ForegroundColor White
