@@ -2,9 +2,9 @@
 # SearchFiles.ps1
 # 機能：
 #   単一ワードまたはCSVリストを基にファイル内容検索
-#   一致箇所のみCSV出力（未一致ファイルは除外）
-#   実行ごとにログを新規作成
-#   CSVには相対パスを含む
+#   一致箇所をTXTに直接出力（CSV形式で記録）
+#   実行ごとに新しいログを作成
+#   相対パス対応
 # ===========================================
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -12,6 +12,7 @@ Add-Type -AssemblyName System.Windows.Forms
 # === ログファイル作成 ===
 $timestamp = (Get-Date).ToString("yyyyMMdd_HHmmss")
 $logFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "SearchLog_$timestamp.txt"
+
 function Write-Log($msg) {
     $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Add-Content -Path $logFile -Value "[$time] $msg"
@@ -34,14 +35,16 @@ $searchPath = $folderDialog.SelectedPath
 Write-Host "➡ 対象フォルダ: $searchPath" -ForegroundColor Green
 Write-Log "検索フォルダ: $searchPath"
 
-# === 検索モード選択 ===
+# === 検索方法選択 ===
 Write-Host ""
 Write-Host "検索方法を選択してください：" -ForegroundColor Yellow
-Write-Host "1️ 単一キーワード検索"
-Write-Host "2️ CSVファイルのリストで検索"
+Write-Host "1️⃣ 単一キーワード検索"
+Write-Host "2️⃣ CSVファイルのリストで検索"
 $mode = Read-Host "番号を入力 (1 または 2)"
 
-# CSV検索は一度だけ実行
+# === 検索ワードの取得 ===
+$searchWords = @()
+
 if ($mode -eq "2") {
     Write-Host ""
     Write-Host "📄 CSVファイルを選択してください..." -ForegroundColor Cyan
@@ -59,87 +62,17 @@ if ($mode -eq "2") {
     }
 }
 
-# === 単一ワード検索ループ ===
-if ($mode -eq "1") {
-    do {
-        $searchWords = @()
-        $word = Read-Host "検索したい文字列を入力してください (終了は空入力)"
-        if ([string]::IsNullOrWhiteSpace($word)) { break }
-        $searchWords += $word
-        Write-Log "単一ワード検索: $word"
+# === 出力ヘッダ ===
+Add-Content -Path $logFile -Value "ファイル名,相対パス,検索ワード,内容,行号,行内位置"
 
-        $results = @()
-        foreach ($file in Get-ChildItem -Path $searchPath -Recurse -File -ErrorAction SilentlyContinue) {
-            try {
-                $lines = Get-Content -Path $file.FullName -Encoding UTF8
-            } catch {
-                Write-Host "⚠ 読み取れないファイル: $($file.FullName)" -ForegroundColor Yellow
-                Write-Log "読み取れない: $($file.FullName)"
-                continue
-            }
+function Search-InFiles($searchWords) {
+    $matchCount = 0
 
-            for ($i = 0; $i -lt $lines.Count; $i++) {
-                $line = [string]$lines[$i]
-                foreach ($w in $searchWords) {
-                    if ($line -like "*$w*") {
-                        $posList = @()
-                        $index = 0
-                        while (($pos = $line.IndexOf($w, $index)) -ne -1) {
-                            $posList += $pos + 1
-                            $index = $pos + $w.Length
-                        }
-                        foreach ($p in $posList) {
-                            $relativePath = $file.FullName.Substring($searchPath.Length)
-                            if ($relativePath.StartsWith("\") -or $relativePath.StartsWith("/")) { $relativePath = $relativePath.Substring(1) }
-                            $results += [PSCustomObject]@{
-                                ファイル名   = $file.Name
-                                相対パス     = $relativePath
-                                ファイル状態 = "一致あり"
-                                検索ワード   = $w
-                                内容         = $line.Trim()
-                                行号         = $i + 1
-                                行内位置     = $p
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if ($results.Count -gt 0) {
-            Write-Host ""
-            Write-Host "✅ 検索結果: $($results.Count) 件見つかりました！" -ForegroundColor Green
-            $genCsv = Read-Host "CSVに出力しますか？(Y/N)"
-            if ($genCsv -match "^[Yy]$") {
-                $resultCsv = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "SearchResult_$timestamp.csv"
-                $results | Export-Csv -Path $resultCsv -Encoding UTF8 -NoTypeInformation
-                Write-Host "💾 結果を保存しました: $resultCsv" -ForegroundColor Cyan
-                Write-Log "CSV生成: $($results.Count) 件"
-            }
-        } else {
-            Write-Host ""
-            Write-Host "❌ 一致する内容は見つかりませんでした。" -ForegroundColor Red
-            Write-Log "一致結果なし"
-        }
-
-    } while ($true)
-
-    Write-Host ""
-    Write-Host "==============================="
-    Write-Host "🎉 単一ワード検索を終了しました。" -ForegroundColor Cyan
-    Write-Host "ログ: $logFile" -ForegroundColor DarkGray
-    Write-Host "==============================="
-}
-
-# === CSVリスト検索 ===
-elseif ($mode -eq "2") {
-    $results = @()
     foreach ($file in Get-ChildItem -Path $searchPath -Recurse -File -ErrorAction SilentlyContinue) {
         try {
             $lines = Get-Content -Path $file.FullName -Encoding UTF8
         } catch {
-            Write-Host "⚠ 読み取れないファイル: $($file.FullName)" -ForegroundColor Yellow
-            Write-Log "読み取れない: $($file.FullName)"
+            Write-Log "⚠ 読み取れない: $($file.FullName)"
             continue
         }
 
@@ -147,45 +80,55 @@ elseif ($mode -eq "2") {
             $line = [string]$lines[$i]
             foreach ($w in $searchWords) {
                 if ($line -like "*$w*") {
-                    $posList = @()
                     $index = 0
                     while (($pos = $line.IndexOf($w, $index)) -ne -1) {
-                        $posList += $pos + 1
                         $index = $pos + $w.Length
-                    }
-                    foreach ($p in $posList) {
                         $relativePath = $file.FullName.Substring($searchPath.Length)
                         if ($relativePath.StartsWith("\") -or $relativePath.StartsWith("/")) { $relativePath = $relativePath.Substring(1) }
-                        $results += [PSCustomObject]@{
-                            ファイル名   = $file.Name
-                            相対パス     = $relativePath
-                            ファイル状態 = "一致あり"
-                            検索ワード   = $w
-                            内容         = $line.Trim()
-                            行号         = $i + 1
-                            行内位置     = $p
-                        }
+                        $record = "$($file.Name),$relativePath,$w,""$($line.Trim())"",$($i + 1),$($pos + 1)"
+                        Add-Content -Path $logFile -Value $record
+                        $matchCount++
                     }
                 }
             }
         }
     }
+    return $matchCount
+}
 
-    if ($results.Count -gt 0) {
-        $resultCsv = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "SearchResult_$timestamp.csv"
-        $results | Export-Csv -Path $resultCsv -Encoding UTF8 -NoTypeInformation
+# === 実行 ===
+if ($mode -eq "1") {
+    do {
+        $word = Read-Host "検索したい文字列を入力してください (終了は空入力)"
+        if ([string]::IsNullOrWhiteSpace($word)) { break }
+        $searchWords = @($word)
+        Write-Log "単一検索: $word"
+
+        $count = Search-InFiles $searchWords
+        if ($count -gt 0) {
+            Write-Host "✅ $count 件見つかりました！" -ForegroundColor Green
+        } else {
+            Write-Host "❌ 一致する内容はありませんでした。" -ForegroundColor Red
+        }
+
         Write-Host ""
-        Write-Host "✅ CSVに出力しました: $resultCsv" -ForegroundColor Green
-        Write-Log "CSV生成: $($results.Count) 件"
+        $cont = Read-Host "続けますか？(Y/N)"
+    } while ($cont -match "^[Yy]$")
+
+    Write-Host ""
+    Write-Host "🎉 検索終了。結果: $logFile" -ForegroundColor Cyan
+    Write-Log "単一モード終了"
+}
+
+elseif ($mode -eq "2") {
+    $count = Search-InFiles $searchWords
+    if ($count -gt 0) {
+        Write-Host "✅ $count 件見つかりました！" -ForegroundColor Green
     } else {
-        Write-Host ""
-        Write-Host "❌ 一致する内容は見つかりませんでした。" -ForegroundColor Red
-        Write-Log "一致結果なし"
+        Write-Host "❌ 一致する内容はありませんでした。" -ForegroundColor Red
     }
 
     Write-Host ""
-    Write-Host "==============================="
-    Write-Host "🎉 CSVリスト検索終了" -ForegroundColor Cyan
-    Write-Host "ログ: $logFile" -ForegroundColor DarkGray
-    Write-Host "==============================="
+    Write-Host "🎉 CSVリスト検索終了。結果: $logFile" -ForegroundColor Cyan
+    Write-Log "CSVモード終了"
 }
