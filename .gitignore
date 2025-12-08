@@ -4,3 +4,4 @@
 /app/doctrine/__pycache__
 /module/__pycache__
 /module/openai/__pycache__
+/.venv
